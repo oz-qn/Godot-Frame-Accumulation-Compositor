@@ -12,7 +12,6 @@ var pipeline: RID
 
 var stored_size: Vector2i
 
-var clear_accumulation_buffer: bool = false
 var buffer_set: bool = false
 var accumulated_buffer: RID
 
@@ -33,11 +32,6 @@ func _notification(what: int) -> void:
 
 var linear_sampler: RID
 
-func _set(property: StringName, value: Variant):
-	if property == &"enabled":
-		enabled = value
-		initialize_accumulation_buffer(stored_size)
-
 #region Code in this region runs on the rendering thread.
 # Compile our shader at initialization.
 func _initialize_compute() -> void:
@@ -54,27 +48,23 @@ func _initialize_compute() -> void:
 	var shader_file := load(SHADER_PATH)
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	
+	buffer_set = false
 	
 	shader = rd.shader_create_from_spirv(shader_spirv)
 	if shader.is_valid():
 		pipeline = rd.compute_pipeline_create(shader)
+		
 
-func initialize_accumulation_buffer(size: Vector2i) -> void:
-	if !rd: return
-	
+func update_accumulation_buffer(_size: Vector2i) -> void:
 	if accumulated_buffer.is_valid():
 		rd.free_rid(accumulated_buffer)
-	
-	var buffer_texture := RDTextureFormat.new()
-	buffer_texture.width = size.x
-	buffer_texture.height = size.y
-	buffer_texture.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
-	buffer_texture.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
-	
-	var tex_view := RDTextureView.new()
-	
-	var acc_image := Image.create_empty(size.x, size.y, false, Image.FORMAT_RGBAH)
-	accumulated_buffer = rd.texture_create(buffer_texture, tex_view, [acc_image.get_data()])
+	var img := Image.create_empty(_size.x, _size.y, false, Image.FORMAT_RGBAH)
+	var tex_format := RDTextureFormat.new()
+	tex_format.width = _size.x
+	tex_format.height = _size.y
+	tex_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+	tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT | RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT
+	accumulated_buffer = rd.texture_create(tex_format, RDTextureView.new(), [img.get_data()])
 
 # Called by the rendering thread every frame.
 func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data: RenderData) -> void:
@@ -83,18 +73,14 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 		# Note that implementation differs per renderer hence the need for the cast.
 		var render_scene_buffers: RenderSceneBuffersRD = p_render_data.get_render_scene_buffers()
 		if render_scene_buffers:
-			# Get our render size, this is the 3D render resolution!
-			if !stored_size:
-				stored_size = render_scene_buffers.get_internal_size()
-			
 			
 			var size: Vector2i = render_scene_buffers.get_internal_size()
 			if size.x == 0 and size.y == 0:
 				return
 			
 			if stored_size != size:
-				initialize_accumulation_buffer(size)
 				stored_size = size
+				update_accumulation_buffer(size)
 			
 			# We can use a compute shader here.
 			@warning_ignore("integer_division")
@@ -137,10 +123,6 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				u_frame_texture.binding = 2
 				u_frame_texture.add_id(linear_sampler)
 				u_frame_texture.add_id(frame_texture)
-				
-				if !buffer_set:
-					initialize_accumulation_buffer(size)
-					buffer_set = true
 				
 				var u_acc_buffer := RDUniform.new()
 				u_acc_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE

@@ -28,7 +28,7 @@ void main() {
 		return;
 	}
 
-	vec4 frame_color = texture(frame_texture, vec2(uv)/vec2(size));
+	vec4 frame_color = texture(frame_texture, vec2(uv + 0.5)/vec2(size));
 
 	vec4 acc_color = imageLoad(accumulation_buffer, uv);
 
