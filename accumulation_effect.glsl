@@ -39,4 +39,5 @@ void main() {
 	imageStore(accumulation_buffer, uv, acc_blend);
 
 	imageStore(output_buffer, uv, acc_blend);
+
 }
