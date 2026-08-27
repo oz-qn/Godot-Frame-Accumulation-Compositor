@@ -2,7 +2,7 @@
 extends CompositorEffect
 class_name AccumulationEffect
 
-const SHADER_PATH: String = "res://effect/accumulation_effect.glsl"
+const SHADER_PATH: String = "res://accumulation/accumulation_effect.glsl"
 
 @export_range(0.0, 0.99, 0.01) var blur_strength: float = 0.75
 
@@ -94,11 +94,10 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 			
 			# Create push constant.
 			# Must be aligned to 16 bytes and be in the same order as defined in the shader.
+			var final_delta: float = clampf(pow(blur_strength, blur_delta), 0.0, 1.0)
+			
 			var push_constant := PackedFloat32Array([
-				size.x,
-				size.y,
-				blur_strength,
-				blur_delta,
+				final_delta,
 			])
 			
 			# Loop through views just in case we're doing stereo rendering. No extra cost if this is mono.
@@ -109,7 +108,6 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				
 				# Get the RID for our color image, we will be reading from and writing to it.
 				var color_buffer: RID = render_scene_buffers.get_color_layer(view)
-				var frame_texture: RID = render_scene_buffers.get_color_texture()
 				
 				# Create a uniform set, this will be cached, the cache will be cleared if our viewports configuration is changed.
 				var u_output_buffer := RDUniform.new()
@@ -117,19 +115,12 @@ func _render_callback(p_effect_callback_type: EffectCallbackType, p_render_data:
 				u_output_buffer.binding = 0
 				u_output_buffer.add_id(color_buffer)
 				
-				# current frame texture being sent
-				var u_frame_texture := RDUniform.new()
-				u_frame_texture.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-				u_frame_texture.binding = 2
-				u_frame_texture.add_id(linear_sampler)
-				u_frame_texture.add_id(frame_texture)
-				
 				var u_acc_buffer := RDUniform.new()
 				u_acc_buffer.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 				u_acc_buffer.binding = 1
 				u_acc_buffer.add_id(accumulated_buffer)
 				
-				uniform_set = UniformSetCacheRD.get_cache(shader, 0, [u_output_buffer, u_frame_texture, u_acc_buffer])
+				uniform_set = UniformSetCacheRD.get_cache(shader, 0, [u_output_buffer, u_acc_buffer])
 				
 				# Run our compute shader.
 				var compute_list := rd.compute_list_begin()
